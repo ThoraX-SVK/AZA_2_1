@@ -2,6 +2,7 @@ package org.fei;
 
 public class MatrixEntry {
 
+    public double q;
     Integer wordNumber;
     Integer cost;
 
@@ -13,7 +14,8 @@ public class MatrixEntry {
     @Override
     public String toString() {
         return "MatrixEntry{" +
-                "wordNumber=" + wordNumber +
+                "q=" + q +
+                ", wordNumber=" + wordNumber +
                 ", cost=" + cost +
                 '}';
     }

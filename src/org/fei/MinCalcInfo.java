@@ -2,9 +2,9 @@ package org.fei;
 
 public class MinCalcInfo {
     Integer wordNumber;
-    Integer sum;
+    Double sum;
 
-    public MinCalcInfo(Integer wordNumber, Integer sum) {
+    public MinCalcInfo(Integer wordNumber, Double sum) {
         this.wordNumber = wordNumber;
         this.sum = sum;
     }
