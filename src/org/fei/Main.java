@@ -12,7 +12,7 @@ import java.util.stream.Stream;
 public class Main {
 
     private static List<WordInfo> words;
-    private static List<KeyWordInfo> keyWords;
+    private static List<KeyWordInfo> keyWords = new ArrayList<>();
 
     private static Node tree;
     private static int cumulativeFrequency = 0;
@@ -20,68 +20,29 @@ public class Main {
     private static Matrix weightMatrix;
 
     public static void main(String[] args) throws IOException {
-
         constructWeightMatrix();
         constructTree();
         pocet_porovnani("must");
-
-        int i = 42;
     }
 
     private static void constructWeightMatrix() throws IOException {
         words = new ArrayList<>();
 
-        //Prechádzame riadok po riadku
-        try (Stream<String> stream = Files.lines(Paths.get("dictionary.txt"))) {
-            stream.forEach(line -> {
-                String[] parts = line.split(" ");
+        fillAllWordsList();
+        sortAllWordsLexicographicaly();
+        assignEveryWordNumber();
 
-                Integer frequency = Integer.parseInt(parts[0]);
-                String name = parts[1];
-
-                words.add(new WordInfo(name, frequency));
-            });
-        }
-
-        //Lexikograficky rozadíme (tj. a -> b -> c...)
-        words.sort(Comparator.comparing(wordInfo -> wordInfo.word));
-
-        //Očíslujeme každé slovo od 1
-        int wordNum = 1;
-        for(WordInfo wordInfo : words) {
-            wordInfo.setWordNumber(wordNum);
-            wordNum++;
-        }
-
-        keyWords = new ArrayList<>();
-
-        Integer sumOfFrequencies = words.stream()
-                .mapToInt(it -> it.frequency)
-                .sum();
-
-        words.forEach(it -> {
-            if(it.frequency > 50000) {
-                // is key word
-                double p = (double) it.frequency / sumOfFrequencies;
-                double q = (double) cumulativeFrequency / sumOfFrequencies;
-                keyWords.add(new KeyWordInfo(p,q,it.wordNumber, it));
-
-                cumulativeFrequency = 0;
-            } else {
-                cumulativeFrequency += it.frequency;
-            }
-        });
-
-        wordNum = 1;
-        for(KeyWordInfo wordInfo : keyWords) {
-            wordInfo.wordNumber = wordNum;
-            wordNum++;
-        }
+        Integer sumOfFrequencies = computeSumOfAllFrequencies();
+        findAllKeyWordsAndComputeTheirPQ(sumOfFrequencies);
+        assignNumberToEveryKeyWord();
 
         weightMatrix = new Matrix(keyWords.size());
 
-        fillWeightMatrixDiagonal(0);
+        fillWeightMatrixDiagonalWithWordQValues(0);
+        finishOtherDiagonalsInWeightMatrix();
+    }
 
+    private static void finishOtherDiagonalsInWeightMatrix() {
         IntStream.rangeClosed(0,weightMatrix.matrix.size()).forEach(index -> {
 
             int startAtColumn = index + 2;
@@ -107,7 +68,63 @@ public class Main {
         });
     }
 
-    private static void fillWeightMatrixDiagonal(int startAtColumn) {
+    private static void assignNumberToEveryKeyWord() {
+        int wordNum;
+        wordNum = 1;
+        for(KeyWordInfo wordInfo : keyWords) {
+            wordInfo.wordNumber = wordNum;
+            wordNum++;
+        }
+    }
+
+    private static void findAllKeyWordsAndComputeTheirPQ(Integer sumOfFrequencies) {
+        words.forEach(it -> {
+            if(it.frequency > 50000) {
+                // is key word
+                double p = (double) it.frequency / sumOfFrequencies;
+                double q = (double) cumulativeFrequency / sumOfFrequencies;
+                keyWords.add(new KeyWordInfo(p,q,it.wordNumber, it));
+
+                cumulativeFrequency = 0;
+            } else {
+                cumulativeFrequency += it.frequency;
+            }
+        });
+    }
+
+    private static int computeSumOfAllFrequencies() {
+        return words.stream()
+                .mapToInt(it -> it.frequency)
+                .sum();
+    }
+
+    private static void assignEveryWordNumber() {
+        //Očíslujeme každé slovo od 1
+        int wordNum = 1;
+        for(WordInfo wordInfo : words) {
+            wordInfo.setWordNumber(wordNum);
+            wordNum++;
+        }
+    }
+
+    private static void sortAllWordsLexicographicaly() {
+        words.sort(Comparator.comparing(wordInfo -> wordInfo.word));
+    }
+
+    private static void fillAllWordsList() throws IOException {
+        try (Stream<String> stream = Files.lines(Paths.get("dictionary.txt"))) {
+            stream.forEach(line -> {
+                String[] parts = line.split(" ");
+
+                Integer frequency = Integer.parseInt(parts[0]);
+                String name = parts[1];
+
+                words.add(new WordInfo(name, frequency));
+            });
+        }
+    }
+
+    private static void fillWeightMatrixDiagonalWithWordQValues(int startAtColumn) {
 
         List<Pair> pairsToBeLookedAt = constructPairsWeAreLookingFor(startAtColumn, weightMatrix.matrix.size());
 
@@ -135,56 +152,60 @@ public class Main {
 
     private static void constructTree() {
 
-        //Vytvoríme maticu v ktorej budeme počítať, cenu za najnižšie zostrojenie stromu a podstromu
-        Matrix matrix = new Matrix(keyWords.size());
+        Matrix costMatrix = new Matrix(keyWords.size());
+        fillAllDiagonalsInCostMatrix(costMatrix);
 
-        //Začneme postupne vypĺňať diagonály
-        IntStream.range(0,matrix.matrix.size())
-                .forEach(index -> fillMatrixDiagonal(index, matrix));
-
-        //Root je element, ktorý bol v poslednom stĺpci matice
-        MatrixEntry root = matrix.matrix.get(0).get(keyWords.size() -1);
-
-        String word = keyWords.stream()
-                .filter(it -> it.wordNumber == root.wordNumber)
-                .findFirst()
-                .orElseThrow(IllegalArgumentException::new)
-                .wordInfo.word;
+        MatrixEntry root = getTopMostRightCellInCostMatrix(costMatrix);
+        String word = getWordRelatedToCellInCostMatrix(root);
 
         tree = new Node(word);
 
         Queue<Pair> queue = new ArrayDeque<>();
 
-        //Ľavý a pravý subStrom problém
         queue.add(new Pair(0, root.wordNumber - 1));
         queue.add(new Pair(root.wordNumber, keyWords.size() - 1));
 
         do {
             Pair processing = queue.poll();
 
-            MatrixEntry actual = matrix.matrix.get(processing.first).get(processing.second);
-
-            word = keyWords.stream()
-                    .filter(it -> it.wordNumber == actual.wordNumber)
-                    .findFirst()
-                    .orElseThrow(IllegalArgumentException::new)
-                    .wordInfo.word;
+            MatrixEntry nowProcessing = costMatrix.matrix.get(processing.first).get(processing.second);
+            word = getWordRelatedToCellInCostMatrix(nowProcessing);
 
             tree.add(word);
 
-            //Nový lavý a pravý substrom
-            Pair left = new Pair(processing.first, actual.wordNumber - 1);
-            Pair right = new Pair(actual.wordNumber, processing.second);
+            Pair left = new Pair(processing.first, nowProcessing.wordNumber - 1);
+            Pair right = new Pair(nowProcessing.wordNumber, processing.second);
 
-            if(!left.first.equals(left.second)) {
+            if(!firstEqualsSecond(left)) {
                 queue.add(left);
             }
 
-            if(!right.first.equals(right.second)) {
+            if(!firstEqualsSecond(right)) {
                 queue.add(right);
             }
 
         } while (!queue.isEmpty());
+    }
+
+    private static boolean firstEqualsSecond(Pair left) {
+        return left.first.equals(left.second);
+    }
+
+    private static String getWordRelatedToCellInCostMatrix(MatrixEntry root) {
+        return keyWords.stream()
+                .filter(it -> it.wordNumber == root.wordNumber)
+                .findFirst()
+                .orElseThrow(IllegalArgumentException::new)
+                .wordInfo.word;
+    }
+
+    private static MatrixEntry getTopMostRightCellInCostMatrix(Matrix costMatrix) {
+        return costMatrix.matrix.get(0).get(keyWords.size() -1);
+    }
+
+    private static void fillAllDiagonalsInCostMatrix(Matrix matrix) {
+        IntStream.range(0,matrix.matrix.size())
+                .forEach(index -> fillMatrixDiagonal(index, matrix));
     }
 
     /**   0   1   2   3   4   5   6
